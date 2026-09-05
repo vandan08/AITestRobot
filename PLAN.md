@@ -83,7 +83,7 @@ Five stages. Most of them do **not** involve a model.
 | 1. Surface extraction | Routes, fields, validation rules, endpoints, rendered controls | **No** — ts-morph AST + a11y probe | £0 |
 | 2. Test synthesis | SurfaceMap + Spec → `TestCase[]` | Yes — `claude-opus-5`, structured output | Once, cached |
 | 3. Execution | Compile the DSL to Playwright, run it | **No** | £0 |
-| 4. Adjudication | Triage failures: real bug / drift / bad test / flake | Yes — failures only | ~0 |
+| 4. Adjudication | Triage failures: real bug / drift / bad test / flake. **Advisory — never changes a verdict** | Yes — failures only | ~0 |
 | 5. Report | HTML + JSON, verdict breakdown | No | £0 |
 
 ### Why "compile, don't interpret"
@@ -336,7 +336,7 @@ Skip this and nothing is reproducible — and an unreproducible suite is noise.
 | **M2** | TestCase DSL, compiler, locator chain, runner, reporter; hand-written seed cases prove the runner *before* the model is involved | ✅ built, verified — 7/7, 0 false positives |
 | **M3** | Stage 2: Claude synthesis with structured output | ⚠️ built, **not yet run** — needs an API credential |
 | **M5a** | Mutation eval harness + scorecard | ✅ built, verified — 4/10 on the hand-written baseline |
-| **M4** | Stage 4 adjudication + `oracle/divergence` | planned |
+| **M4** | Stage 4 adjudication + `oracle/divergence` | ⚠️ built; evidence capture verified, model calls **not yet run** |
 | **M5b** | Explorer mode | planned |
 
 M2 lands before M3 deliberately. If the runner is not trustworthy on hand-written cases,

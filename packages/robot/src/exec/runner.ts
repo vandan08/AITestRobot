@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { chromium } from "playwright";
-import type { Browser } from "playwright";
+import type { Browser, Page } from "playwright";
 import type { RobotConfig } from "../config.js";
 import { outPath } from "../config.js";
 import { newContext, resetApp, setMutations } from "../harness.js";
@@ -10,7 +10,7 @@ import type { TestCase } from "../synth/testcase.js";
 import { AssertionFailure, checkExpectation, runStep } from "./actions.js";
 import { LocatorError } from "./locator.js";
 import type { Strategy } from "./locator.js";
-import type { Outcome, RequestLog, RunResult, Verdict } from "./types.js";
+import type { Evidence, Outcome, RequestLog, RunResult, Verdict } from "./types.js";
 import { printRun } from "../report/print.js";
 
 export interface RunOptions {
@@ -130,6 +130,16 @@ async function runCase(
       ...base,
       verdict: "BLOCKED",
       detail: `precondition failed: ${(error as Error).message}`,
+      // No page exists yet, so there is nothing to snapshot — but the harness error
+      // itself is what triage needs here.
+      evidence: {
+        phase: "precondition",
+        index: 0,
+        executing: JSON.stringify({ fixture, authAs }),
+        requests: [],
+        errorName: (error as Error).name,
+        errorMessage: (error as Error).message.split("\n")[0],
+      },
       durationMs: Date.now() - started,
     };
   }
@@ -137,16 +147,29 @@ async function runCase(
   const page = await context.newPage();
   const requests: RequestLog[] = [];
   page.on("request", (request) => {
-    requests.push({ method: request.method(), url: request.url() });
+    requests.push({
+      method: request.method(),
+      url: request.url(),
+      resourceType: request.resourceType(),
+    });
   });
 
   const ctx = { page, config, requests, strategies };
+  let phase: Evidence["phase"] = "steps";
+  let index = 0;
+  let executing: string | undefined;
 
   try {
-    for (const step of testCase.steps) {
+    for (const [i, step] of testCase.steps.entries()) {
+      phase = "steps";
+      index = i;
+      executing = JSON.stringify(step);
       await runStep(step, ctx);
     }
-    for (const expectation of testCase.expected) {
+    for (const [i, expectation] of testCase.expected.entries()) {
+      phase = "expectations";
+      index = i;
+      executing = JSON.stringify(expectation);
       await checkExpectation(expectation, ctx);
     }
 
@@ -159,11 +182,42 @@ async function runCase(
     return {
       ...base,
       ...classify(error as Error, testCase),
+      evidence: await captureEvidence(page, requests, error as Error, {
+        phase,
+        index,
+        executing,
+      }),
       durationMs: Date.now() - started,
     };
   } finally {
     await context.close();
   }
+}
+
+/**
+ * Evidence is gathered only on failure, and gathering it must never itself throw —
+ * a page that has navigated away or crashed still has to produce a triageable record.
+ */
+async function captureEvidence(
+  page: Page,
+  requests: RequestLog[],
+  error: Error,
+  at: { phase: Evidence["phase"]; index: number; executing?: string },
+): Promise<Evidence> {
+  const evidence: Evidence = {
+    ...at,
+    requests: [...requests],
+    errorName: error.name,
+    errorMessage: error.message.split("\n").slice(0, 4).join(" "),
+  };
+
+  try {
+    evidence.url = page.url();
+    evidence.snapshot = await page.locator("body").ariaSnapshot();
+  } catch {
+    // The page is gone. The rest of the record still triages.
+  }
+  return evidence;
 }
 
 /**

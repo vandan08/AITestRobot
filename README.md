@@ -35,9 +35,14 @@ npx tsx packages/robot/src/cli.ts run       # Stage 3 — execute the corpus
 npx tsx packages/robot/src/cli.ts eval      # Stage 5 — mutation-score the corpus
 ```
 
-`robot synth` (Stage 2) calls the Claude API and needs a credential — either
-`ANTHROPIC_API_KEY` in the environment, or `ant auth login`. Every other command runs
-entirely offline.
+`divergence`, `synth` and `adjudicate` call the Claude API and need a credential — either
+`ANTHROPIC_API_KEY`, or `ant auth login`. Every other command runs entirely offline.
+
+> **If you get "Invalid bearer token" with a key exported:** the SDK resolves
+> `ANTHROPIC_API_KEY` → `ANTHROPIC_AUTH_TOKEN` → profile, first match wins. An agent
+> harness or proxy in the surrounding shell may have exported `ANTHROPIC_AUTH_TOKEN`, which
+> then wins over nothing and loses to your key only if yours is set. `unset
+> ANTHROPIC_AUTH_TOKEN` and export your own. The CLI explains this when it happens.
 
 ---
 
@@ -46,12 +51,39 @@ entirely offline.
 | Command | Stage | Model? | What it does |
 |---|---|---|---|
 | `robot surface` | 1 | no | AST-extracts routes, endpoints, and validation rules; probes each screen in a browser; writes `artifacts/surface.json` |
+| `robot divergence` | 1 | **yes** | Compares `SPEC.md` against the extracted rules and reports where they disagree |
 | `robot synth` | 2 | **yes** | Generates a test corpus from the surface map + `SPEC.md` into `testcases/generated.json` |
 | `robot run` | 3 | no | Compiles the corpus to Playwright calls and executes it |
+| `robot adjudicate` | 4 | **yes** | Triages the last run's failures from the evidence captured at failure time |
 | `robot eval` | 5 | no | Injects each known defect in turn and scores what the corpus catches |
 | `robot mutations` | — | no | Lists the injectable defects |
 
-Useful flags: `--no-probe`, `--screen <route>`, `--filter <substring>`, `--mutation <id>`.
+Useful flags: `--no-probe`, `--screen <route>`, `--filter <substring>`, `--mutation <id>`,
+`--adjudicate`.
+
+### Divergence — the finding a test suite cannot make
+
+A suite can only tell you whether the application matches the *code's* idea of correct. It
+cannot tell you a requirement never reached the code at all: there is nothing to execute,
+so nothing fails, and the gap stays invisible.
+
+`robot divergence` compares the requirements against the Stage 1 rules and reports three
+kinds of disagreement — `contradiction`, `unimplemented`, and `undocumented` (a code rule
+no requirement covers, so tests for it can only ever be `code`-sourced). Every finding must
+quote both sides; findings that cite a requirement id not present in `SPEC.md`, or that
+omit the verbatim quote, are dropped before you see them. Reporting nothing is a valid
+outcome — a false divergence costs someone an hour and teaches them to ignore the report.
+
+### Adjudication — advisory, always
+
+A failing test says something is wrong, not *what*. `robot adjudicate` reads the evidence
+captured at failure time — the accessibility tree, the data requests actually sent, which
+locator strategy resolved each target — and classifies: `REAL_BUG`, `SELECTOR_DRIFT`,
+`TEST_WRONG`, `ENV_FLAKE`, or `UNDETERMINED`.
+
+**Triage never changes a verdict.** It annotates. A model that can reclassify a real
+failure as a flake is not a triage system, it is a way to turn a red build green, so that
+path does not exist — which is also why the adjudicator has no reason to hedge.
 
 ---
 

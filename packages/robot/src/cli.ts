@@ -6,8 +6,10 @@ const USAGE = `
 AITestRobot
 
   robot surface [--no-probe]        Stage 1  Extract the SurfaceMap (deterministic)
+  robot divergence                  Stage 1  Compare SPEC against the extracted rules
   robot synth   [--screen <route>]  Stage 2  Generate test cases from SurfaceMap + SPEC
   robot run     [--filter <sub>]    Stage 3  Compile and execute the corpus
+  robot adjudicate                  Stage 4  Triage the last run's failures
   robot mutations                            List the injectable defects
   robot eval                        Stage 5  Mutation-score the corpus
 
@@ -16,6 +18,10 @@ Options
   --screen <route>  Restrict synthesis to one route
   --filter <sub>    Run only test cases whose id contains <sub>
   --mutation <id>   Arm one mutation for the duration of the run
+  --adjudicate      After a run, triage any failures immediately
+
+Stages 1, 3 and 5 run entirely offline. divergence, synth and adjudicate call the
+Claude API and need a credential.
 `.trimStart();
 
 function flag(name: string): string | undefined {
@@ -55,6 +61,13 @@ async function main(): Promise<number> {
       return 0;
     }
 
+    case "divergence": {
+      const { detectDivergence } = await import("./oracle/divergence.js");
+      const { printDivergence } = await import("./report/print.js");
+      printDivergence(await detectDivergence(config));
+      return 0;
+    }
+
     case "run": {
       const { runSuite } = await import("./exec/runner.js");
       const mutation = flag("mutation");
@@ -62,7 +75,19 @@ async function main(): Promise<number> {
         filter: flag("filter"),
         mutations: mutation ? [mutation] : [],
       });
+      if (has("adjudicate") && result.fail + result.blocked > 0) {
+        const { adjudicate } = await import("./adjudicate/triage.js");
+        const { printAdjudication } = await import("./report/print.js");
+        printAdjudication(await adjudicate(config));
+      }
       return result.fail > 0 ? 1 : 0;
+    }
+
+    case "adjudicate": {
+      const { adjudicate } = await import("./adjudicate/triage.js");
+      const { printAdjudication } = await import("./report/print.js");
+      printAdjudication(await adjudicate(config));
+      return 0;
     }
 
     case "mutations": {

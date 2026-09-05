@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import type { RobotConfig } from "../config.js";
 import { outPath } from "../config.js";
@@ -9,8 +8,7 @@ import { screenBrief, systemPrompt } from "./prompt.js";
 import { testSuiteSchema, validateCase } from "./testcase.js";
 import type { TestCase } from "./testcase.js";
 import type { SurfaceMap } from "../types.js";
-
-const MODEL = "claude-opus-5";
+import { MODEL, client, estimateCost, withApiErrors } from "../llm.js";
 
 export interface SynthOptions {
   screen?: string;
@@ -36,7 +34,7 @@ export async function synthesize(
     );
   }
 
-  const client = new Anthropic();
+  const anthropic = client();
   const system = systemPrompt(spec);
   const generated: TestCase[] = [];
   let inputTokens = 0;
@@ -46,17 +44,21 @@ export async function synthesize(
   for (const screen of screens) {
     process.stdout.write(`  synthesising ${screen.route} … `);
 
-    const response = await client.messages.parse({
-      model: MODEL,
-      max_tokens: 16000,
-      thinking: { type: "adaptive" },
-      // The spec and the vocabulary are identical across screens — cache them.
-      system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
-      messages: [
-        { role: "user", content: screenBrief(map, screen, map.schemas, roles) },
-      ],
-      output_config: { format: zodOutputFormat(testSuiteSchema) },
-    });
+    const response = await withApiErrors(() =>
+      anthropic.messages.parse({
+        model: MODEL,
+        max_tokens: 16000,
+        thinking: { type: "adaptive" },
+        // The spec and the vocabulary are identical across screens — cache them.
+        system: [
+          { type: "text", text: system, cache_control: { type: "ephemeral" } },
+        ],
+        messages: [
+          { role: "user", content: screenBrief(map, screen, map.schemas, roles) },
+        ],
+        output_config: { format: zodOutputFormat(testSuiteSchema) },
+      }),
+    );
 
     inputTokens += response.usage.input_tokens;
     outputTokens += response.usage.output_tokens;
@@ -131,11 +133,11 @@ function report(
     return acc;
   }, {});
 
-  // claude-opus-5: $5/MTok in, $25/MTok out, cache reads at 0.1x input.
-  const cost =
-    (usage.inputTokens / 1e6) * 5 +
-    (usage.outputTokens / 1e6) * 25 +
-    (usage.cacheReads / 1e6) * 0.5;
+  const cost = estimateCost({
+    input_tokens: usage.inputTokens,
+    output_tokens: usage.outputTokens,
+    cache_read_input_tokens: usage.cacheReads,
+  });
 
   console.log(`\n  ${cases.length} cases written to ${config.testcaseDir}/generated.json`);
   console.log(
