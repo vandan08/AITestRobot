@@ -17,6 +17,11 @@ export interface RunOptions {
   filter?: string;
   mutations?: string[];
   quiet?: boolean;
+  /**
+   * Run these cases instead of what is on disk. Used to verify explorer proposals
+   * before they are allowed anywhere near the committed corpus.
+   */
+  cases?: TestCase[];
 }
 
 export function loadCases(config: RobotConfig): TestCase[] {
@@ -38,7 +43,7 @@ export async function runSuite(
   config: RobotConfig,
   options: RunOptions = {},
 ): Promise<RunResult> {
-  const all = loadCases(config);
+  const all = options.cases ?? loadCases(config);
   const cases = options.filter
     ? all.filter(
         (c) =>
@@ -81,7 +86,11 @@ export async function runSuite(
     outcomes,
   };
 
-  fs.writeFileSync(outPath(config, "run.json"), JSON.stringify(result, null, 2));
+  // A verification pass over a caller-supplied list is not a run of the corpus, so it
+  // must not overwrite the record that `robot adjudicate` reads.
+  if (!options.cases) {
+    fs.writeFileSync(outPath(config, "run.json"), JSON.stringify(result, null, 2));
+  }
   if (!options.quiet) printRun(result);
   return result;
 }

@@ -55,6 +55,7 @@ npx tsx packages/robot/src/cli.ts eval      # Stage 5 — mutation-score the cor
 | `robot synth` | 2 | **yes** | Generates a test corpus from the surface map + `SPEC.md` into `testcases/generated.json` |
 | `robot run` | 3 | no | Compiles the corpus to Playwright calls and executes it |
 | `robot adjudicate` | 4 | **yes** | Triages the last run's failures from the evidence captured at failure time |
+| `robot explore` | — | **yes** | Drives the app agentically to discover cases nobody wrote, then verifies them |
 | `robot eval` | 5 | no | Injects each known defect in turn and scores what the corpus catches |
 | `robot mutations` | — | no | Lists the injectable defects |
 
@@ -84,6 +85,46 @@ locator strategy resolved each target — and classifies: `REAL_BUG`, `SELECTOR_
 **Triage never changes a verdict.** It annotates. A model that can reclassify a real
 failure as a flake is not a triage system, it is a way to turn a red build green, so that
 path does not exist — which is also why the adjudicator has no reason to hedge.
+
+### Explorer — the other half of the loop
+
+The regression suite is deterministic, cheap, and blind: it only ever checks what someone
+already thought to write down. The explorer is the opposite — an agent with hands on the
+browser, non-deterministic and expensive, able to notice what nobody specified.
+
+```bash
+npx tsx packages/robot/src/cli.ts explore --screen edit --as admin --turns 24 --budget 1.00
+```
+
+Its output is **test cases, not verdicts**. It discovers; the regression suite decides.
+That separation is the entire point — run it occasionally, and it feeds the suite that runs
+on every commit.
+
+Three constraints keep a non-deterministic proposer from poisoning a deterministic corpus:
+
+1. **Exploration is inherently code-sourced.** Watching a running application teaches you
+   what it *does*, never what it *should* do. Proposals default to `assertionSource:
+   "code"`, and a `spec` claim naming a requirement that isn't in `SPEC.md` is rejected
+   before verification — the same gate synthesis is held to.
+2. **Every proposal is replayed before admission.** Cases are re-run from a fresh reset in
+   a fresh browser. Only `PASS`/`CHARACTERIZED` reach `testcases/explored.json`.
+3. **Quarantine means "a human decides", not "wrong".** A spec-sourced case that fails on
+   the clean application may have found a genuine defect — that is the most valuable thing
+   the explorer can produce. Those land in `artifacts/explore.json` for review.
+
+The tool surface is confined to the application under test: `navigate` and `read_api` take
+paths only and refuse anything else. Budget is capped two ways — `--turns` and a running
+cost ceiling that stops the loop mid-run.
+
+## Tests
+
+```bash
+npm test -w @aitestrobot/robot
+```
+
+Covers the explorer's tool surface against a live browser (navigation, origin confinement,
+persistence checks through the API, request filtering) and the proposal gatekeeper. The
+browser tests skip cleanly if the demo app is not running.
 
 ---
 

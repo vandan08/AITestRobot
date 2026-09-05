@@ -2,6 +2,7 @@ import type { SurfaceMap } from "../types.js";
 import type { RunResult } from "../exec/types.js";
 import type { AdjudicationReport } from "../adjudicate/triage.js";
 import type { DivergenceReport } from "../oracle/divergence.js";
+import type { ExploreReport } from "../explore/explorer.js";
 
 const ESC = String.fromCharCode(27);
 const DIM = `${ESC}[2m`;
@@ -154,6 +155,61 @@ export function printAdjudication(report: AdjudicationReport): void {
   console.log(
     `  ${DIM}~$${report.usage.estimatedCostUsd.toFixed(3)} for ${report.triaged} judgement(s)${RESET}\n`,
   );
+}
+
+export function printExplore(report: ExploreReport): void {
+  console.log(`\n${BOLD}Exploration${RESET} — ${report.screen} as ${report.as}\n`);
+  console.log(
+    `  ${report.turns} turns  ${report.actions} actions  ` +
+      `${report.proposed} proposed  ${DIM}~$${report.usage.estimatedCostUsd.toFixed(3)}${RESET}\n`,
+  );
+
+  if (report.admitted.length > 0) {
+    console.log(`  ${GREEN}admitted to the corpus${RESET}  (${report.admitted.length})`);
+    for (const testCase of report.admitted) {
+      console.log(
+        `    ${testCase.id.padEnd(34)} ${DIM}[${testCase.assertionSource}]${RESET} ${testCase.title}`,
+      );
+    }
+    console.log();
+  }
+
+  if (report.quarantined.length > 0) {
+    console.log(`  ${YELLOW}quarantined — a human decides${RESET}  (${report.quarantined.length})`);
+    for (const entry of report.quarantined) {
+      const color = VERDICT_COLOR[entry.verdict] ?? "";
+      console.log(
+        `    ${color}${entry.verdict.padEnd(14)}${RESET} ${entry.testCase.id} ` +
+          `${DIM}[${entry.testCase.assertionSource}${entry.testCase.specRef ? ` ${entry.testCase.specRef}` : ""}]${RESET}`,
+      );
+      console.log(`      ${entry.testCase.title}`);
+      if (entry.detail) console.log(`      ${DIM}${entry.detail}${RESET}`);
+    }
+    console.log(
+      `\n    ${DIM}A spec-sourced case failing on the clean application may have found a\n` +
+        `    real defect. Quarantined means unverified, not wrong — review before\n` +
+        `    discarding, and \`robot adjudicate\` can help.${RESET}\n`,
+    );
+  }
+
+  if (report.notes.length > 0) {
+    console.log(`  ${BOLD}notes${RESET}  (${report.notes.length})`);
+    for (const note of report.notes) console.log(`    ${note}`);
+    console.log();
+  }
+
+  if (report.rejected.length > 0) {
+    console.log(`  ${DIM}${report.rejected.length} proposal(s) rejected before verification:${RESET}`);
+    for (const reason of report.rejected) console.log(`    ${DIM}${reason}${RESET}`);
+    console.log();
+  }
+
+  if (report.proposed === 0) {
+    console.log(
+      `  ${YELLOW}Nothing proposed.${RESET} ${DIM}The explorer produced no cases — either the\n` +
+        `  screen is already well covered, or the budget ran out first.${RESET}\n`,
+    );
+  }
 }
 
 const SEVERITY_COLOR: Record<string, string> = {

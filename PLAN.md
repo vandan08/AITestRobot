@@ -104,6 +104,18 @@ This gives two operating modes, and the relationship between them is the archite
 
 *The explorer's job is to feed the regression suite.*
 
+Which raises the obvious hazard: a non-deterministic proposer feeding a deterministic
+corpus is exactly how suites become flaky. So nothing the explorer proposes enters the
+corpus on its word — every proposal is replayed from a fresh reset in a fresh browser
+first, and only `PASS`/`CHARACTERIZED` are admitted. The rest are quarantined for review,
+because a spec-sourced proposal that fails on the clean application may have found a
+genuine defect, which is the single most valuable thing exploration can produce.
+
+And exploration is **inherently code-sourced**: watching a running application teaches you
+what it does, never what it should do. Proposals default to `assertionSource: "code"`, and
+a `spec` claim naming a requirement absent from `SPEC.md` is rejected — the same gate
+synthesis passes through.
+
 ---
 
 ## 3. Stage 1 — Surface extraction (deterministic)
@@ -337,7 +349,7 @@ Skip this and nothing is reproducible — and an unreproducible suite is noise.
 | **M3** | Stage 2: Claude synthesis with structured output | ⚠️ built, **not yet run** — needs an API credential |
 | **M5a** | Mutation eval harness + scorecard | ✅ built, verified — 4/10 on the hand-written baseline |
 | **M4** | Stage 4 adjudication + `oracle/divergence` | ⚠️ built; evidence capture verified, model calls **not yet run** |
-| **M5b** | Explorer mode | planned |
+| **M5b** | Explorer mode | ⚠️ built; tool surface and gatekeeper tested (14 tests), agent loop **not yet run** |
 
 M2 lands before M3 deliberately. If the runner is not trustworthy on hand-written cases,
 nothing downstream of it can be measured. The eval harness landed early for the same

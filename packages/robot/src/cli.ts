@@ -10,15 +10,21 @@ AITestRobot
   robot synth   [--screen <route>]  Stage 2  Generate test cases from SurfaceMap + SPEC
   robot run     [--filter <sub>]    Stage 3  Compile and execute the corpus
   robot adjudicate                  Stage 4  Triage the last run's failures
+  robot explore [--screen <route>]           Drive the app agentically to discover cases
   robot mutations                            List the injectable defects
   robot eval                        Stage 5  Mutation-score the corpus
 
 Options
   --no-probe        Skip the browser probe; static extraction only
-  --screen <route>  Restrict synthesis to one route
+  --screen <route>  Restrict synthesis or exploration to one route
   --filter <sub>    Run only test cases whose id contains <sub>
   --mutation <id>   Arm one mutation for the duration of the run
   --adjudicate      After a run, triage any failures immediately
+  --as <role>       Explore signed in as this role (default: probeAs)
+  --fixture <name>  Database fixture to explore against
+  --turns <n>       Cap the explorer's agent turns (default 24)
+  --budget <usd>    Stop exploring once the run has cost this much (default 1.00)
+  --no-verify       Skip replaying explorer proposals before admitting them
 
 Stages 1, 3 and 5 run entirely offline. divergence, synth and adjudicate call the
 Claude API and need a credential.
@@ -87,6 +93,24 @@ async function main(): Promise<number> {
       const { adjudicate } = await import("./adjudicate/triage.js");
       const { printAdjudication } = await import("./report/print.js");
       printAdjudication(await adjudicate(config));
+      return 0;
+    }
+
+    case "explore": {
+      const { explore } = await import("./explore/explorer.js");
+      const { printExplore } = await import("./report/print.js");
+      const turns = flag("turns");
+      const budget = flag("budget");
+      printExplore(
+        await explore(config, {
+          screen: flag("screen"),
+          as: flag("as"),
+          fixture: flag("fixture"),
+          maxIterations: turns ? Number(turns) : undefined,
+          budgetUsd: budget ? Number(budget) : undefined,
+          noVerify: has("no-verify"),
+        }),
+      );
       return 0;
     }
 
