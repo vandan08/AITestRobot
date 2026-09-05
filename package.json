@@ -1,0 +1,11 @@
+{
+  "name": "aitestrobot",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*", "apps/demo"],
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "demo": "npm run dev -w @aitestrobot/demo",
+    "robot": "npm run robot -w @aitestrobot/robot"
+  }
+}

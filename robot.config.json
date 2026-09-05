@@ -1,0 +1,43 @@
+{
+  "appName": "Staff Directory (demo)",
+  "baseUrl": "http://localhost:5173",
+  "apiUrl": "http://localhost:4000",
+  "spec": "SPEC.md",
+  "sources": {
+    "schemas": [
+      "apps/demo/shared/**/*.ts"
+    ],
+    "routes": [
+      "apps/demo/web/src/**/*.tsx"
+    ],
+    "endpoints": [
+      "apps/demo/server/**/*.ts"
+    ]
+  },
+  "routeSamples": {
+    "/users/:id/edit": "/users/1/edit"
+  },
+  "auth": {
+    "storageKey": "demo.token",
+    "tokenEndpoint": "/__test__/token",
+    "users": {
+      "admin": 1,
+      "manager": 2,
+      "clinician": 3,
+      "viewer": 4
+    }
+  },
+  "testControl": {
+    "reset": "/__test__/reset",
+    "mutations": "/__test__/mutations"
+  },
+  "probeAs": "admin",
+  "outDir": "artifacts",
+  "testcaseDir": "testcases",
+  "persistence": [
+    {
+      "route": "/users/:id/edit",
+      "api": "/api/users/:id"
+    }
+  ]
+}

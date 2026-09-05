@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+*.log
+artifacts/
+playwright-report/
+test-results/
+.surface-cache/

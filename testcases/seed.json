@@ -1,0 +1,163 @@
+{
+  "_comment": "Hand-written by a human. These exist to prove the runner is trustworthy BEFORE the model is involved — if these are not reliable, nothing generated downstream can be measured. Not overwritten by `robot synth`.",
+  "cases": [
+    {
+      "id": "TC-SEED-EMAIL-FORMAT",
+      "title": "A malformed email is rejected in the browser and never sent",
+      "screen": "/users/:id/edit",
+      "feature": "user-profile",
+      "kind": "negative",
+      "priority": "P1",
+      "assertionSource": "spec",
+      "specRef": "REQ-2.3",
+      "rationale": "REQ-2.3 requires a visible message and REQ-4.3 requires that no save request is sent when the browser has already found a problem.",
+      "preconditions": [
+        { "type": "reset", "value": "users.basic" },
+        { "type": "auth", "value": "admin" }
+      ],
+      "steps": [
+        { "action": "goto", "target": "/users/1/edit" },
+        { "action": "fill", "target": "email", "value": "not-an-email" },
+        { "action": "click", "target": "save" }
+      ],
+      "expected": [
+        { "assert": "visible", "target": "error-email" },
+        { "assert": "text", "target": "error-email", "match": "valid email" },
+        { "assert": "apiNotCalled", "target": "PATCH /api/users/1" }
+      ]
+    },
+    {
+      "id": "TC-SEED-NAME-MIN",
+      "title": "A one-character full name is rejected",
+      "screen": "/users/:id/edit",
+      "feature": "user-profile",
+      "kind": "boundary",
+      "priority": "P2",
+      "assertionSource": "spec",
+      "specRef": "REQ-2.1",
+      "rationale": "REQ-2.1 sets the lower bound at 2 characters, so 1 is the first invalid value.",
+      "preconditions": [
+        { "type": "reset", "value": "users.basic" },
+        { "type": "auth", "value": "admin" }
+      ],
+      "steps": [
+        { "action": "goto", "target": "/users/1/edit" },
+        { "action": "fill", "target": "fullName", "value": "A" },
+        { "action": "click", "target": "save" }
+      ],
+      "expected": [
+        { "assert": "visible", "target": "error-fullName" },
+        { "assert": "text", "target": "error-fullName", "match": "at least 2" }
+      ]
+    },
+    {
+      "id": "TC-SEED-DEPT-CONDITIONAL",
+      "title": "A clinician cannot be saved without a department",
+      "screen": "/users/:id/edit",
+      "feature": "user-profile",
+      "kind": "negative",
+      "priority": "P1",
+      "assertionSource": "spec",
+      "specRef": "REQ-2.8",
+      "rationale": "REQ-2.8 makes department mandatory for every role except viewer.",
+      "preconditions": [
+        { "type": "reset", "value": "users.basic" },
+        { "type": "auth", "value": "admin" }
+      ],
+      "steps": [
+        { "action": "goto", "target": "/users/3/edit" },
+        { "action": "fill", "target": "department", "value": "" },
+        { "action": "click", "target": "save" }
+      ],
+      "expected": [
+        { "assert": "visible", "target": "error-department" },
+        { "assert": "text", "target": "error-department", "match": "required" }
+      ]
+    },
+    {
+      "id": "TC-SEED-STATUS-PERMISSION",
+      "title": "A clinician cannot operate the account status control",
+      "screen": "/users/:id/edit",
+      "feature": "permissions",
+      "kind": "permission",
+      "priority": "P1",
+      "assertionSource": "spec",
+      "specRef": "REQ-3.2",
+      "rationale": "REQ-3.2 says the control must not be operable for any role but administrator.",
+      "preconditions": [
+        { "type": "reset", "value": "users.permissions" },
+        { "type": "auth", "value": "clinician" }
+      ],
+      "steps": [{ "action": "goto", "target": "/users/1/edit" }],
+      "expected": [{ "assert": "disabled", "target": "status" }]
+    },
+    {
+      "id": "TC-SEED-PHONE-PERSIST",
+      "title": "A saved phone number is actually stored",
+      "screen": "/users/:id/edit",
+      "feature": "user-profile",
+      "kind": "persistence",
+      "priority": "P1",
+      "assertionSource": "spec",
+      "specRef": "REQ-4.1",
+      "rationale": "REQ-4.1 requires every changed field to persist. Re-reading through the API is the only way to tell a real save from a 200 that stored nothing — the form itself just shows you what you typed.",
+      "preconditions": [
+        { "type": "reset", "value": "users.basic" },
+        { "type": "auth", "value": "admin" }
+      ],
+      "steps": [
+        { "action": "goto", "target": "/users/1/edit" },
+        { "action": "fill", "target": "phone", "value": "9998887777" },
+        { "action": "click", "target": "save" }
+      ],
+      "expected": [
+        { "assert": "visible", "target": "save-success" },
+        { "assert": "persisted", "target": "phone", "value": "9998887777" }
+      ]
+    },
+    {
+      "id": "TC-SEED-HAPPY-SAVE",
+      "title": "A valid change saves and confirms",
+      "screen": "/users/:id/edit",
+      "feature": "user-profile",
+      "kind": "happy",
+      "priority": "P1",
+      "assertionSource": "spec",
+      "specRef": "REQ-4.5",
+      "rationale": "REQ-4.5 requires a visible confirmation and REQ-4.1 requires the change to persist.",
+      "preconditions": [
+        { "type": "reset", "value": "users.basic" },
+        { "type": "auth", "value": "admin" }
+      ],
+      "steps": [
+        { "action": "goto", "target": "/users/2/edit" },
+        { "action": "fill", "target": "fullName", "value": "Manny Manager Jr" },
+        { "action": "click", "target": "save" }
+      ],
+      "expected": [
+        { "assert": "visible", "target": "save-success" },
+        { "assert": "persisted", "target": "fullName", "value": "Manny Manager Jr" }
+      ]
+    },
+    {
+      "id": "TC-SEED-SEARCH-EMPTY",
+      "title": "A search with no matches says so",
+      "screen": "/users",
+      "feature": "directory",
+      "kind": "negative",
+      "priority": "P3",
+      "assertionSource": "spec",
+      "specRef": "REQ-5.5",
+      "rationale": "REQ-5.5 requires an explicit message rather than an empty table.",
+      "preconditions": [
+        { "type": "reset", "value": "users.basic" },
+        { "type": "auth", "value": "admin" }
+      ],
+      "steps": [
+        { "action": "goto", "target": "/users" },
+        { "action": "fill", "target": "search", "value": "zzzznobody" }
+      ],
+      "expected": [{ "assert": "visible", "target": "empty-state" }]
+    }
+  ]
+}
