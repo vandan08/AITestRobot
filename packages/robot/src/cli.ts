@@ -1,6 +1,20 @@
 #!/usr/bin/env node
 import fs from "node:fs";
-import { loadConfig, outPath } from "./config.js";
+import path from "node:path";
+import { findRoot, loadConfig, outPath } from "./config.js";
+
+/**
+ * Keys live in `.env` at the repo root if you want them to. Loaded before anything
+ * reads the environment, and silently skipped when the file is absent — this is a
+ * convenience, not a requirement.
+ */
+function loadDotEnv(): void {
+  try {
+    process.loadEnvFile(path.join(findRoot(), ".env"));
+  } catch {
+    // No .env, or no permission to read it. Environment variables still work.
+  }
+}
 
 const USAGE = `
 AITestRobot
@@ -13,6 +27,7 @@ AITestRobot
   robot explore [--screen <route>]           Drive the app agentically to discover cases
   robot mutations                            List the injectable defects
   robot eval                        Stage 5  Mutation-score the corpus
+  robot providers                            Show which model provider will be used
 
 Options
   --no-probe        Skip the browser probe; static extraction only
@@ -26,8 +41,10 @@ Options
   --budget <usd>    Stop exploring once the run has cost this much (default 1.00)
   --no-verify       Skip replaying explorer proposals before admitting them
 
-Stages 1, 3 and 5 run entirely offline. divergence, synth and adjudicate call the
-Claude API and need a credential.
+Stages 1, 3 and 5 run entirely offline. divergence, synth, adjudicate and explore
+call a model and need a key: set ANTHROPIC_API_KEY or GEMINI_API_KEY, in the
+environment or in a .env file. Whichever is configured is the one that gets used —
+run "robot providers" to see which that is.
 `.trimStart();
 
 function flag(name: string): string | undefined {
@@ -45,6 +62,34 @@ async function main(): Promise<number> {
   const command = process.argv[2];
   if (!command || command === "help" || command === "--help") {
     process.stdout.write(USAGE);
+    return 0;
+  }
+
+  loadDotEnv();
+
+  if (command === "providers") {
+    const { ORDER, REGISTRY, available, explainChoice, resolve } = await import(
+      "./providers/index.js"
+    );
+    const { model } = await import("./llm.js");
+    const chosen = resolve();
+    const keyed = available();
+
+    console.log(`\nUsing ${chosen.label} — ${explainChoice()}`);
+    console.log(`  model: ${model()}\n`);
+    for (const providerName of ORDER) {
+      const provider = REGISTRY[providerName];
+      const mark = provider.name === chosen.name ? ">" : " ";
+      const state = keyed.includes(providerName) ? "keyed" : "no key";
+      console.log(
+        `${mark} ${provider.name.padEnd(10)} ${state.padEnd(7)} ` +
+          `${provider.envKeys.join(" or ")}`,
+      );
+    }
+    console.log(
+      `\n  Override with ROBOT_PROVIDER=<name>, and the model with ROBOT_MODEL=<id>.\n` +
+        `  Keys can go in a .env file at the repo root.\n`,
+    );
     return 0;
   }
 

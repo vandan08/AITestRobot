@@ -4,9 +4,11 @@ An AI layer that reads an application's **code** and its **requirements**, gener
 executable test corpus from both, runs it against a real browser, and reports where the
 application, the code, and the requirements disagree.
 
-Status: **Pipeline runs end to end**, with Stage 2 (synthesis) written but not yet
-executed — it needs an API credential. Hand-written baseline: 7/7 passing, 0 false
-positives, **4/10 mutation score**. See [Milestones](#milestones).
+Status: **The deterministic pipeline runs end to end and is verified.** The model-calling
+stages — synthesis, divergence, adjudication, exploration — are written but have never
+been executed against a real key. Hand-written baseline: 7/7 passing, 0 false positives,
+**4/10 mutation score**. Runs on Anthropic or Google Gemini, whichever is configured.
+See [Milestones](#milestones).
 
 ---
 
@@ -58,7 +60,7 @@ Five stages. Most of them do **not** involve a model.
               (deterministic: AST + runtime probe)
                                               │
                                               ▼
-                                    [2] Test Synthesis  ◄── Claude (structured output)
+                                    [2] Test Synthesis  ◄── model (structured output)
                                               │
                                               ▼
                                         TestCase[] (DSL, on disk, reviewable, committed)
@@ -72,7 +74,7 @@ Five stages. Most of them do **not** involve a model.
                                         pass ─┴─ fail
                                               │
                                               ▼
-                                    [4] Adjudication  ◄── Claude (failures only)
+                                    [4] Adjudication  ◄── model (failures only)
                                               │
                                               ▼
                                         [5] Report
@@ -81,7 +83,7 @@ Five stages. Most of them do **not** involve a model.
 | Stage | Job | Model? | Cost per run |
 |---|---|---|---|
 | 1. Surface extraction | Routes, fields, validation rules, endpoints, rendered controls | **No** — ts-morph AST + a11y probe | £0 |
-| 2. Test synthesis | SurfaceMap + Spec → `TestCase[]` | Yes — `claude-opus-5`, structured output | Once, cached |
+| 2. Test synthesis | SurfaceMap + Spec → `TestCase[]` | Yes — structured output, whichever provider is keyed | Once, cached |
 | 3. Execution | Compile the DSL to Playwright, run it | **No** | £0 |
 | 4. Adjudication | Triage failures: real bug / drift / bad test / flake. **Advisory — never changes a verdict** | Yes — failures only | ~0 |
 | 5. Report | HTML + JSON, verdict breakdown | No | £0 |
@@ -321,7 +323,7 @@ AITestRobot/
 |---|---|---|
 | Browser | **Playwright** | Not Selenium. Auto-waiting, trace viewer, network interception, isolated parallel contexts — and critically, `_snapshotForAI()` gives an **accessibility-tree** snapshot. Screenshots cost 10–100× the tokens and force the model to guess coordinates. The a11y tree is what makes LLM-driven testing economically viable at all. |
 | Language | TypeScript / Node 22, ESM | Playwright is first-class here; `ts-morph` gives real AST access for Stage 1 |
-| Model | `claude-opus-5`, adaptive thinking | Structured output via `messages.parse()` + zod, so Stage 2 cannot emit a malformed corpus |
+| Model | Anthropic or Google, whichever is keyed | Two call shapes only — `askJson` (schema in, object out) and `runTools` (agent loop) — which is a small enough contract for more than one vendor to honestly implement. Selection lives in `providers/`, what-to-send in `llm.ts`; no stage knows which API is on the other end. |
 | Static analysis | `ts-morph` | Compiler API without the boilerplate |
 | Validation | `zod` | One schema language for the DSL, config, and the SUT |
 
@@ -350,6 +352,7 @@ Skip this and nothing is reproducible — and an unreproducible suite is noise.
 | **M5a** | Mutation eval harness + scorecard | ✅ built, verified — 4/10 on the hand-written baseline |
 | **M4** | Stage 4 adjudication + `oracle/divergence` | ⚠️ built; evidence capture verified, model calls **not yet run** |
 | **M5b** | Explorer mode | ⚠️ built; tool surface and gatekeeper tested (14 tests), agent loop **not yet run** |
+| **M6** | Provider abstraction: Anthropic + Google Gemini, keyed selection | ⚠️ built; selection and Gemini schema handling tested (11 tests), neither provider's calls **run against a real key** |
 
 M2 lands before M3 deliberately. If the runner is not trustworthy on hand-written cases,
 nothing downstream of it can be measured. The eval harness landed early for the same

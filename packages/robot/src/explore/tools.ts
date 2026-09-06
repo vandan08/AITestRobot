@@ -1,4 +1,3 @@
-import { betaZodTool } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod/v4";
 import type { Page } from "playwright";
 import type { RobotConfig } from "../config.js";
@@ -7,6 +6,7 @@ import { DATA_RESOURCE_TYPES } from "../exec/types.js";
 import type { RequestLog } from "../exec/types.js";
 import { testCaseSchema } from "../synth/testcase.js";
 import type { TestCase } from "../synth/testcase.js";
+import type { RobotTool } from "../llm.js";
 
 /**
  * The explorer's hands.
@@ -33,6 +33,19 @@ export interface ExploreSession {
 
 const MAX_SNAPSHOT = 6000;
 
+/**
+ * Tools are declared provider-neutrally: the explorer never learns which API is on the
+ * other end, and adding a vendor does not touch this file.
+ */
+function tool<S extends z.ZodType<unknown>>(spec: {
+  name: string;
+  description: string;
+  inputSchema: S;
+  run: (input: z.infer<S>) => Promise<string>;
+}): RobotTool {
+  return spec as unknown as RobotTool;
+}
+
 async function act(
   session: ExploreSession,
   work: () => Promise<string>,
@@ -55,10 +68,10 @@ async function describe(session: ExploreSession): Promise<string> {
   return `url: ${url}\n\n${body}`;
 }
 
-export function buildTools(session: ExploreSession) {
+export function buildTools(session: ExploreSession): RobotTool[] {
   const { config } = session;
 
-  const observe = betaZodTool({
+  const observe = tool({
     name: "observe",
     description:
       "Read the current page: its URL and its accessibility tree. Call this after any " +
@@ -67,7 +80,7 @@ export function buildTools(session: ExploreSession) {
     run: async () => act(session, () => describe(session)),
   });
 
-  const navigate = betaZodTool({
+  const navigate = tool({
     name: "navigate",
     description:
       "Go to a path on the application under test, e.g. '/users/1/edit'. Paths only — " +
@@ -89,7 +102,7 @@ export function buildTools(session: ExploreSession) {
       }),
   });
 
-  const fill = betaZodTool({
+  const fill = tool({
     name: "fill",
     description:
       "Type a value into a field, replacing what is there. Use the field's test id or " +
@@ -106,7 +119,7 @@ export function buildTools(session: ExploreSession) {
       }),
   });
 
-  const click = betaZodTool({
+  const click = tool({
     name: "click",
     description:
       "Click a button, link or control, then wait for the page to settle. Returns the " +
@@ -123,7 +136,7 @@ export function buildTools(session: ExploreSession) {
       }),
   });
 
-  const select = betaZodTool({
+  const select = tool({
     name: "select",
     description: "Choose an option in a dropdown by its value.",
     inputSchema: z.object({ target: z.string(), value: z.string() }),
@@ -135,7 +148,7 @@ export function buildTools(session: ExploreSession) {
       }),
   });
 
-  const setCheckbox = betaZodTool({
+  const setCheckbox = tool({
     name: "set_checkbox",
     description: "Tick or untick a checkbox.",
     inputSchema: z.object({ target: z.string(), checked: z.boolean() }),
@@ -148,7 +161,7 @@ export function buildTools(session: ExploreSession) {
       }),
   });
 
-  const requests = betaZodTool({
+  const requests = tool({
     name: "requests",
     description:
       "List the data requests the page has sent so far (documents, scripts and styles " +
@@ -165,7 +178,7 @@ export function buildTools(session: ExploreSession) {
       }),
   });
 
-  const readApi = betaZodTool({
+  const readApi = tool({
     name: "read_api",
     description:
       "GET a path on the application's API and return the JSON, authenticated as the " +
@@ -191,7 +204,7 @@ export function buildTools(session: ExploreSession) {
       }),
   });
 
-  const note = betaZodTool({
+  const note = tool({
     name: "note",
     description:
       "Record an observation that is worth a human's attention but is not a test case — " +
@@ -204,7 +217,7 @@ export function buildTools(session: ExploreSession) {
       }),
   });
 
-  const proposeCase = betaZodTool({
+  const proposeCase = tool({
     name: "propose_case",
     description:
       "Propose a regression test case for something you have actually observed. This is " +

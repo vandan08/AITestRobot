@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod/v4";
 import type { RobotConfig } from "../config.js";
 import { outPath } from "../config.js";
@@ -8,7 +7,7 @@ import { loadCases } from "../exec/runner.js";
 import { DATA_RESOURCE_TYPES } from "../exec/types.js";
 import type { Outcome, RunResult, Triage } from "../exec/types.js";
 import type { TestCase } from "../synth/testcase.js";
-import { MODEL, client, estimateCost, withApiErrors } from "../llm.js";
+import { NO_USAGE, addUsage, askJson, describeModel, estimateCost } from "../llm.js";
 
 /**
  * Stage 4. The only place a model touches the execution path, and it touches it after
@@ -90,6 +89,7 @@ Where you suggest a repair, be concrete and name the file, field, or expectation
 
 export interface AdjudicationReport {
   generatedAt: string;
+  model: string;
   triaged: number;
   outcomes: Outcome[];
   usage: { inputTokens: number; outputTokens: number; estimatedCostUsd: number };
@@ -113,40 +113,29 @@ export async function adjudicate(config: RobotConfig): Promise<AdjudicationRepor
     console.log("\n  Nothing to adjudicate — no failures in the last run.\n");
     return {
       generatedAt: new Date().toISOString(),
+      model: describeModel(),
       triaged: 0,
       outcomes: run.outcomes,
       usage: { inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0 },
     };
   }
 
-  const anthropic = client();
-  let inputTokens = 0;
-  let outputTokens = 0;
+  let usageTotal = NO_USAGE;
 
   console.log(`\nAdjudicating ${failures.length} failure(s)\n`);
 
   for (const outcome of failures) {
     process.stdout.write(`  ${outcome.id} … `);
 
-    const response = await withApiErrors(() =>
-      anthropic.messages.parse({
-        model: MODEL,
-        max_tokens: 4000,
-        thinking: { type: "adaptive" },
-        system: [
-          { type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } },
-        ],
-        messages: [
-          { role: "user", content: brief(outcome, cases.get(outcome.id), spec) },
-        ],
-        output_config: { format: zodOutputFormat(triageSchema) },
-      }),
-    );
+    const { value, usage } = await askJson({
+      system: SYSTEM,
+      user: brief(outcome, cases.get(outcome.id), spec),
+      schema: triageSchema,
+      maxTokens: 4000,
+    });
+    usageTotal = addUsage(usageTotal, usage);
 
-    inputTokens += response.usage.input_tokens;
-    outputTokens += response.usage.output_tokens;
-
-    const triage = response.parsed_output as Triage | null;
+    const triage = value as Triage | null;
     if (!triage) {
       console.log("could not parse a judgement");
       continue;
@@ -155,12 +144,16 @@ export async function adjudicate(config: RobotConfig): Promise<AdjudicationRepor
     console.log(`${triage.classification} (${triage.confidence})`);
   }
 
-  const cost = estimateCost({ input_tokens: inputTokens, output_tokens: outputTokens });
   const report: AdjudicationReport = {
     generatedAt: new Date().toISOString(),
+    model: describeModel(),
     triaged: failures.length,
     outcomes: run.outcomes,
-    usage: { inputTokens, outputTokens, estimatedCostUsd: cost },
+    usage: {
+      inputTokens: usageTotal.inputTokens,
+      outputTokens: usageTotal.outputTokens,
+      estimatedCostUsd: estimateCost(usageTotal),
+    },
   };
 
   // Write the triage back onto the run so the two never drift apart.

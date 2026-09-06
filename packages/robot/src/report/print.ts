@@ -132,7 +132,7 @@ export function printAdjudication(report: AdjudicationReport): void {
   const triaged = report.outcomes.filter((outcome) => outcome.triage);
   if (triaged.length === 0) return;
 
-  console.log(`\n${BOLD}Adjudication${RESET}\n`);
+  console.log(`\n${BOLD}Adjudication${RESET}  ${DIM}${report.model}${RESET}\n`);
 
   for (const outcome of triaged) {
     const triage = outcome.triage!;
@@ -158,10 +158,15 @@ export function printAdjudication(report: AdjudicationReport): void {
 }
 
 export function printExplore(report: ExploreReport): void {
-  console.log(`\n${BOLD}Exploration${RESET} — ${report.screen} as ${report.as}\n`);
+  console.log(
+    `\n${BOLD}Exploration${RESET} — ${report.screen} as ${report.as}  ` +
+      `${DIM}${report.model}${RESET}\n`,
+  );
   console.log(
     `  ${report.turns} turns  ${report.actions} actions  ` +
-      `${report.proposed} proposed  ${DIM}~$${report.usage.estimatedCostUsd.toFixed(3)}${RESET}\n`,
+      `${report.proposed} proposed  ` +
+      `${DIM}~$${report.usage.estimatedCostUsd.toFixed(3)}  ` +
+      `stopped: ${report.stopReason}${RESET}\n`,
   );
 
   if (report.admitted.length > 0) {
@@ -219,7 +224,10 @@ const SEVERITY_COLOR: Record<string, string> = {
 };
 
 export function printDivergence(report: DivergenceReport): void {
-  console.log(`\n${BOLD}Divergence${RESET} — requirements against extracted rules\n`);
+  console.log(
+    `\n${BOLD}Divergence${RESET} — requirements against extracted rules  ` +
+      `${DIM}${report.model}${RESET}\n`,
+  );
 
   if (report.findings.length === 0) {
     console.log(`  ${GREEN}No divergence found.${RESET}`);

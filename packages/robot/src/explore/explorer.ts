@@ -4,11 +4,13 @@ import { chromium } from "playwright";
 import type { RobotConfig } from "../config.js";
 import { outPath } from "../config.js";
 import { newContext, resetApp, setMutations } from "../harness.js";
-import { MODEL, client, estimateCost, withApiErrors } from "../llm.js";
+import { NO_USAGE, describeModel, estimateCost, runTools } from "../llm.js";
 import { loadCases, runSuite } from "../exec/runner.js";
 import { validateCase } from "../synth/testcase.js";
 import type { TestCase } from "../synth/testcase.js";
 import type { Outcome, RequestLog } from "../exec/types.js";
+import type { Usage } from "../llm.js";
+import type { ToolResult } from "../providers/base.js";
 import type { SurfaceMap } from "../types.js";
 import { buildSurfaceMap } from "../surface/merge.js";
 import { buildTools } from "./tools.js";
@@ -51,6 +53,8 @@ export interface ExploreReport {
   notes: string[];
   actions: number;
   turns: number;
+  stopReason: ToolResult["stopReason"];
+  model: string;
   usage: { inputTokens: number; outputTokens: number; estimatedCostUsd: number };
 }
 
@@ -240,9 +244,9 @@ export async function explore(
     actions: 0,
   };
 
-  let inputTokens = 0;
-  let outputTokens = 0;
+  let usage: Usage = NO_USAGE;
   let turns = 0;
+  let stopReason: ToolResult["stopReason"] = "completed";
 
   try {
     await page.goto(`${config.baseUrl}${screen.url}`, {
@@ -250,66 +254,44 @@ export async function explore(
       timeout: 15000,
     });
 
-    const anthropic = client();
-    const runner = anthropic.beta.messages.toolRunner({
-      model: MODEL,
-      max_tokens: 8000,
-      thinking: { type: "adaptive" },
-      system: [
-        {
-          type: "text",
-          text: systemPrompt(spec),
-          cache_control: { type: "ephemeral" },
-        },
-      ],
-      messages: [
-        {
-          role: "user",
-          content: mission(
-            map,
-            screen.route,
-            screen.url,
-            loadCases(config),
-            as,
-            fixture,
-            Object.keys(config.auth.users),
-          ),
-        },
-      ],
-      tools: buildTools(session),
-      max_iterations: maxIterations,
-    });
-
     console.log(
-      `\nExploring ${screen.route} as ${as}  ` +
-        `(max ${maxIterations} turns, budget $${budgetUsd.toFixed(2)})\n`,
+      `\nExploring ${screen.route} as ${as} with ${describeModel()}\n` +
+        `  (max ${maxIterations} turns, budget $${budgetUsd.toFixed(2)})\n`,
     );
 
-    await withApiErrors(async () => {
-      for await (const message of runner) {
+    const result = await runTools({
+      system: systemPrompt(spec),
+      user: mission(
+        map,
+        screen.route,
+        screen.url,
+        loadCases(config),
+        as,
+        fixture,
+        Object.keys(config.auth.users),
+      ),
+      tools: buildTools(session),
+      maxTokens: 8000,
+      maxIterations,
+      // A wandering agent is the expensive failure mode. Keep the brake here rather
+      // than trusting the model to stop.
+      onTurn: (running) => {
         turns += 1;
-        inputTokens += message.usage.input_tokens;
-        outputTokens += message.usage.output_tokens;
-
-        const spent = estimateCost({
-          input_tokens: inputTokens,
-          output_tokens: outputTokens,
-        });
+        usage = running;
+        const spent = estimateCost(running);
         process.stdout.write(
           `  turn ${String(turns).padStart(2)}  ` +
             `${session.actions} actions  ${session.proposals.length} proposed  ` +
             `$${spent.toFixed(3)}\r`,
         );
-
-        // A wandering agent is the expensive failure mode. Stop it ourselves rather
-        // than trusting it to stop.
-        if (spent >= budgetUsd) {
-          console.log(`\n  budget reached — stopping`);
-          break;
-        }
-      }
+        return spent < budgetUsd;
+      },
     });
-    console.log();
+
+    usage = result.usage;
+    turns = result.turns;
+    stopReason = result.stopReason;
+    console.log(`\n  stopped: ${stopReason}`);
   } finally {
     await context.close();
     await browser.close();
@@ -319,8 +301,8 @@ export async function explore(
     screen: screen.route,
     as,
     turns,
-    inputTokens,
-    outputTokens,
+    usage,
+    stopReason,
     noVerify: options.noVerify ?? false,
   });
 }
@@ -381,8 +363,8 @@ async function finish(
     screen: string;
     as: string;
     turns: number;
-    inputTokens: number;
-    outputTokens: number;
+    usage: Usage;
+    stopReason: ToolResult["stopReason"];
     noVerify: boolean;
   },
 ): Promise<ExploreReport> {
@@ -395,6 +377,7 @@ async function finish(
 
   const report: ExploreReport = {
     generatedAt: new Date().toISOString(),
+    model: describeModel(),
     screen: meta.screen,
     as: meta.as,
     proposed: session.proposals.length,
@@ -404,13 +387,11 @@ async function finish(
     notes: session.notes,
     actions: session.actions,
     turns: meta.turns,
+    stopReason: meta.stopReason,
     usage: {
-      inputTokens: meta.inputTokens,
-      outputTokens: meta.outputTokens,
-      estimatedCostUsd: estimateCost({
-        input_tokens: meta.inputTokens,
-        output_tokens: meta.outputTokens,
-      }),
+      inputTokens: meta.usage.inputTokens,
+      outputTokens: meta.usage.outputTokens,
+      estimatedCostUsd: estimateCost(meta.usage),
     },
   };
 

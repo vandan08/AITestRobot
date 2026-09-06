@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import type { RobotConfig } from "../config.js";
 import { outPath } from "../config.js";
 import { buildSurfaceMap } from "../surface/merge.js";
@@ -8,7 +7,8 @@ import { screenBrief, systemPrompt } from "./prompt.js";
 import { testSuiteSchema, validateCase } from "./testcase.js";
 import type { TestCase } from "./testcase.js";
 import type { SurfaceMap } from "../types.js";
-import { MODEL, client, estimateCost, withApiErrors } from "../llm.js";
+import type { Usage } from "../llm.js";
+import { NO_USAGE, addUsage, askJson, describeModel, estimateCost } from "../llm.js";
 
 export interface SynthOptions {
   screen?: string;
@@ -34,37 +34,24 @@ export async function synthesize(
     );
   }
 
-  const anthropic = client();
   const system = systemPrompt(spec);
   const generated: TestCase[] = [];
-  let inputTokens = 0;
-  let outputTokens = 0;
-  let cacheReads = 0;
+  let usageTotal = NO_USAGE;
+
+  console.log(`\n  using ${describeModel()}`);
 
   for (const screen of screens) {
     process.stdout.write(`  synthesising ${screen.route} … `);
 
-    const response = await withApiErrors(() =>
-      anthropic.messages.parse({
-        model: MODEL,
-        max_tokens: 16000,
-        thinking: { type: "adaptive" },
-        // The spec and the vocabulary are identical across screens — cache them.
-        system: [
-          { type: "text", text: system, cache_control: { type: "ephemeral" } },
-        ],
-        messages: [
-          { role: "user", content: screenBrief(map, screen, map.schemas, roles) },
-        ],
-        output_config: { format: zodOutputFormat(testSuiteSchema) },
-      }),
-    );
-
-    inputTokens += response.usage.input_tokens;
-    outputTokens += response.usage.output_tokens;
-    cacheReads += response.usage.cache_read_input_tokens ?? 0;
-
-    const suite = response.parsed_output;
+    // The spec and the vocabulary are identical across screens, so the system prompt
+    // is a stable cacheable prefix across the whole run.
+    const { value: suite, usage } = await askJson({
+      system,
+      user: screenBrief(map, screen, map.schemas, roles),
+      schema: testSuiteSchema,
+      maxTokens: 16000,
+    });
+    usageTotal = addUsage(usageTotal, usage);
     if (!suite) {
       console.log("failed to parse a corpus");
       continue;
@@ -89,7 +76,7 @@ export async function synthesize(
   }
 
   writeCorpus(config, generated);
-  report(config, generated, { inputTokens, outputTokens, cacheReads });
+  report(config, generated, usageTotal);
   return generated;
 }
 
@@ -119,11 +106,7 @@ function writeCorpus(config: RobotConfig, cases: TestCase[]): void {
   );
 }
 
-function report(
-  config: RobotConfig,
-  cases: TestCase[],
-  usage: { inputTokens: number; outputTokens: number; cacheReads: number },
-): void {
+function report(config: RobotConfig, cases: TestCase[], usage: Usage): void {
   const bySource = cases.reduce<Record<string, number>>((acc, testCase) => {
     acc[testCase.assertionSource] = (acc[testCase.assertionSource] ?? 0) + 1;
     return acc;
@@ -133,11 +116,7 @@ function report(
     return acc;
   }, {});
 
-  const cost = estimateCost({
-    input_tokens: usage.inputTokens,
-    output_tokens: usage.outputTokens,
-    cache_read_input_tokens: usage.cacheReads,
-  });
+  const cost = estimateCost(usage);
 
   console.log(`\n  ${cases.length} cases written to ${config.testcaseDir}/generated.json`);
   console.log(
@@ -152,11 +131,15 @@ function report(
   );
   console.log(
     `  tokens:    ${usage.inputTokens} in, ${usage.outputTokens} out, ` +
-      `${usage.cacheReads} cached  (~$${cost.toFixed(3)})\n`,
+      `${usage.cachedInputTokens} cached  (~$${cost.toFixed(3)})\n`,
   );
 
   fs.writeFileSync(
     outPath(config, "synth-usage.json"),
-    JSON.stringify({ ...usage, cases: cases.length, estimatedCostUsd: cost }, null, 2),
+    JSON.stringify(
+      { ...usage, model: describeModel(), cases: cases.length, estimatedCostUsd: cost },
+      null,
+      2,
+    ),
   );
 }

@@ -1,12 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
-import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod/v4";
 import type { RobotConfig } from "../config.js";
 import { outPath } from "../config.js";
 import { buildSurfaceMap } from "../surface/merge.js";
 import type { SurfaceMap } from "../types.js";
-import { MODEL, client, estimateCost, withApiErrors } from "../llm.js";
+import { askJson, describeModel, estimateCost } from "../llm.js";
 
 /**
  * The third verdict.
@@ -55,6 +54,8 @@ export type DivergenceFinding = z.infer<typeof divergenceFindingSchema>;
 
 export interface DivergenceReport {
   generatedAt: string;
+  /** Which provider and model produced this. */
+  model: string;
   findings: DivergenceFinding[];
   rejected: string[];
   usage: { inputTokens: number; outputTokens: number; estimatedCostUsd: number };
@@ -107,19 +108,13 @@ export async function detectDivergence(
   const map = await loadSurface(config);
   const spec = fs.readFileSync(path.join(config.root, config.spec), "utf8");
 
-  const anthropic = client();
-  const response = await withApiErrors(() =>
-    anthropic.messages.parse({
-      model: MODEL,
-      max_tokens: 16000,
-      thinking: { type: "adaptive" },
-      system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }],
-      messages: [{ role: "user", content: brief(spec, map) }],
-      output_config: { format: zodOutputFormat(divergenceReportSchema) },
-    }),
-  );
+  const { value: parsed, usage } = await askJson({
+    system: SYSTEM,
+    user: brief(spec, map),
+    schema: divergenceReportSchema,
+    maxTokens: 16000,
+  });
 
-  const parsed = response.parsed_output;
   const findings: DivergenceFinding[] = [];
   const rejected: string[] = [];
 
@@ -140,16 +135,15 @@ export async function detectDivergence(
     findings.push(finding);
   }
 
-  const cost = estimateCost(response.usage);
-
   const report: DivergenceReport = {
     generatedAt: new Date().toISOString(),
+    model: describeModel(),
     findings,
     rejected,
     usage: {
-      inputTokens: response.usage.input_tokens,
-      outputTokens: response.usage.output_tokens,
-      estimatedCostUsd: cost,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      estimatedCostUsd: estimateCost(usage),
     },
   };
 

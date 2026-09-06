@@ -16,33 +16,99 @@ meaningless green suites — is in [PLAN.md](PLAN.md). The short version:
 
 ## Quick start
 
+**1. Install** (once):
+
 ```bash
-npm install
-npx playwright install chromium
+npm install && npx playwright install chromium
 ```
 
-Start the demo application under test (API on :4000, web on :5173):
+**2. Start the app under test** — API on :4000, web on :5173. Leave this running:
 
 ```bash
 npm run demo
 ```
 
-Then, in a second terminal:
+**3. In a second terminal, run the offline half.** No key needed, nothing to configure:
 
 ```bash
-npx tsx packages/robot/src/cli.ts surface   # Stage 1 — extract, no model involved
-npx tsx packages/robot/src/cli.ts run       # Stage 3 — execute the corpus
-npx tsx packages/robot/src/cli.ts eval      # Stage 5 — mutation-score the corpus
+npx tsx packages/robot/src/cli.ts surface
 ```
 
-`divergence`, `synth` and `adjudicate` call the Claude API and need a credential — either
-`ANTHROPIC_API_KEY`, or `ant auth login`. Every other command runs entirely offline.
+```bash
+npx tsx packages/robot/src/cli.ts run
+```
 
-> **If you get "Invalid bearer token" with a key exported:** the SDK resolves
+```bash
+npx tsx packages/robot/src/cli.ts eval
+```
+
+`surface` extracts the rules and probes the screens; `run` executes the hand-written
+corpus; `eval` injects each known defect and scores what the corpus catches. That is the
+whole deterministic pipeline, and it should finish with 7/7 passing and a 4/10 mutation
+score.
+
+**4. Add a key to run the model stages.** Copy `.env.example` to `.env` and fill in one
+key — see [Model provider](#model-provider) below — then:
+
+```bash
+npx tsx packages/robot/src/cli.ts divergence
+```
+
+```bash
+npx tsx packages/robot/src/cli.ts synth
+```
+
+```bash
+npx tsx packages/robot/src/cli.ts explore --screen edit --turns 24 --budget 1.00
+```
+
+Then re-run `eval` to see whether the generated corpus beats the hand-written 4/10. Start
+with `divergence`: it is the cheapest, and `SPEC.md` carries a seeded contradiction
+(REQ-2.6) so you have a known right answer to check it against.
+
+## Model provider
+
+`divergence`, `synth`, `adjudicate` and `explore` call a model. Everything else runs
+entirely offline. **Whichever key you configure is the provider that gets used** — put one
+in `.env` at the repo root (see `.env.example`) or in the environment:
+
+```bash
+GEMINI_API_KEY=...        # Google Gemini
+ANTHROPIC_API_KEY=...     # Anthropic Claude
+```
+
+```bash
+npx tsx packages/robot/src/cli.ts providers
+```
+
+```
+Using Google Gemini — first keyed provider in order (gemini, anthropic)
+  model: gemini-2.5-pro
+
+> gemini     keyed   GEMINI_API_KEY or GOOGLE_API_KEY
+  anthropic  no key  ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN
+```
+
+The rule, in full:
+
+1. `ROBOT_PROVIDER` if set. An unknown name is an **error**, not a silent fall-through — a
+   typo that quietly bills the wrong vendor is worse than a run that stops.
+2. Otherwise the first keyed provider in order: **gemini, then anthropic**. With one key
+   configured this is just "the one you configured".
+3. Otherwise Anthropic, the only one whose SDK can find a credential this tool cannot see
+   (`ant auth login` sets no environment variable).
+
+The order puts Gemini first deliberately. Adding a key is a deliberate act and leaving one
+behind is not: the way two keys end up visible is someone already on Anthropic pasting in a
+Gemini key to try it, and a rule that answered by changing nothing would read as broken.
+The stale key loses. `ROBOT_PROVIDER=anthropic` settles it either way, and `ROBOT_MODEL`
+pins a specific model.
+
+> **If you get "Invalid bearer token" with a key exported:** the Anthropic SDK resolves
 > `ANTHROPIC_API_KEY` → `ANTHROPIC_AUTH_TOKEN` → profile, first match wins. An agent
 > harness or proxy in the surrounding shell may have exported `ANTHROPIC_AUTH_TOKEN`, which
-> then wins over nothing and loses to your key only if yours is set. `unset
-> ANTHROPIC_AUTH_TOKEN` and export your own. The CLI explains this when it happens.
+> then wins over nothing. `unset ANTHROPIC_AUTH_TOKEN` and export your own — or just set
+> `GEMINI_API_KEY` and let selection route around it. The CLI explains this when it happens.
 
 ---
 

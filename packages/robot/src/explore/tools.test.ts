@@ -24,7 +24,7 @@ type Tool = ReturnType<typeof buildTools>[number];
 const call = (tools: Tool[], name: string, input: unknown) => {
   const tool = tools.find((t) => t.name === name);
   assert.ok(tool, `tool "${name}" should exist`);
-  return (tool as { run: (a: unknown) => Promise<string> }).run(input);
+  return tool.run(input);
 };
 
 const appIsUp = await fetch(`${config.apiUrl}${config.testControl.mutations}`)
