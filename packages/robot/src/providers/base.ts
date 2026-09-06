@@ -113,7 +113,12 @@ export interface Provider {
   readonly envKeys: readonly string[];
   readonly defaultModel: string;
   readonly authHint: string;
-  readonly pricing: Pricing;
+  /**
+   * Prices vary by model within a vendor, often by an order of magnitude between a
+   * flash-class and a pro-class model, so this takes the model rather than being a
+   * constant. Estimates for reporting only — nothing decides anything on them.
+   */
+  pricingFor(model: string): Pricing;
   askJson<T>(request: JsonRequest<T>): Promise<JsonResult<T>>;
   runTools(request: ToolRequest): Promise<ToolResult>;
 }

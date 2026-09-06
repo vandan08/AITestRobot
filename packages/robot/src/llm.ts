@@ -28,7 +28,7 @@ export function describeModel(): string {
 
 /** Cost of some usage, priced by whichever provider is in use. Always an estimate. */
 export function estimateCost(usage: Usage): number {
-  return costOf(usage, resolve().pricing);
+  return costOf(usage, resolve().pricingFor(model()));
 }
 
 /** Ask for one object matching a schema. Null when nothing satisfied it. */

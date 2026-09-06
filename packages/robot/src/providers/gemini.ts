@@ -4,6 +4,7 @@ import { z } from "zod/v4";
 import { LLMError, NO_USAGE, addUsage, invokeTool } from "./base.js";
 import type {
   JsonRequest,
+  Pricing,
   JsonResult,
   Provider,
   ToolRequest,
@@ -40,22 +41,43 @@ export const label = "Google Gemini";
 export const envKeys = ["GEMINI_API_KEY", "GOOGLE_API_KEY"] as const;
 
 /**
- * The generally available Pro model rather than the newest preview: every stage here is
- * a judgement call, and a preview id that 404s on a Tuesday is a worse failure than a
- * model half a generation behind. Point ROBOT_MODEL at whatever is current.
+ * A flash-class model, and not the obvious "best available" choice, for two reasons
+ * learned the hard way:
+ *
+ * - Pro is not merely rate-limited on the free tier, it is `limit: 0` — unavailable
+ *   outright. A Pro default would 429 for anyone without billing enabled, with a message
+ *   that reads like a temporary throttle.
+ * - Model ids retire. `gemini-2.5-pro` and `gemini-2.5-flash` both 404 for new keys with
+ *   "no longer available to new users", and both are still listed by `models.list()` —
+ *   so the listing is not an availability signal. This id is the one Google's own 404
+ *   named as the successor.
+ *
+ * Point ROBOT_MODEL at a Pro model if you have billing enabled; the judgement stages
+ * will be better for it.
  */
-export const defaultModel = "gemini-2.5-pro";
+export const defaultModel = "gemini-3.6-flash";
 export const authHint = "set GEMINI_API_KEY";
 
 /**
- * Estimates only, for the cost lines in reports. Check these against current published
- * pricing before quoting them at anyone — they are not read by any decision the tool makes.
+ * Rough published rates, for the cost lines in reports only — nothing decides anything
+ * on them, and they will drift. Flash-class and Pro-class models differ by roughly an
+ * order of magnitude, which is too much to paper over with a single constant.
  */
-export const pricing = {
+const FLASH_PRICING = {
+  inputPerMTok: 0.3,
+  outputPerMTok: 2.5,
+  cachedInputPerMTok: 0.075,
+};
+
+const PRO_PRICING = {
   inputPerMTok: 1.25,
   outputPerMTok: 10,
   cachedInputPerMTok: 0.31,
 };
+
+export function pricingFor(model: string): Pricing {
+  return /pro/i.test(model) ? PRO_PRICING : FLASH_PRICING;
+}
 
 /** Share of the ceiling handed to thinking. Always leaves room for the answer. */
 const THINKING_SHARE = 0.5;
@@ -115,7 +137,7 @@ function client(): GoogleGenAI {
   return new GoogleGenAI({ apiKey });
 }
 
-export function explain(error: unknown): string {
+export function explain(error: unknown, model?: string): string {
   const message = (error as Error)?.message ?? String(error);
   const status = (error as { status?: number })?.status;
 
@@ -132,9 +154,38 @@ export function explain(error: unknown): string {
       "variables.",
     ].join("\n");
   }
+  // A quota of *zero* is not a rate limit. It means this tier cannot use this model at
+  // all, and telling someone to slow down when the answer is "pick another model or
+  // enable billing" wastes an afternoon.
+  if (status === 429 && /limit:\s*0\b/.test(message)) {
+    return [
+      "This model is not available on your Google API tier at all — the quota is zero,",
+      "not merely exhausted. Waiting will not help.",
+      "",
+      "Pro-class models generally need billing enabled. Either enable it, or point",
+      "ROBOT_MODEL at a flash-class model:",
+      "",
+      "  ROBOT_MODEL=gemini-3.6-flash",
+    ].join("\n");
+  }
   if (status === 429) return `Google rate limited the request.\n${message}`;
+
+  // Retired ids keep appearing in models.list(), so the listing cannot be trusted and
+  // the 404 body is the only thing that names a working successor.
+  if (status === 404 && /no longer available/i.test(message)) {
+    const successor = message.match(/use\s+models\/([\w.-]+)/i)?.[1];
+    return [
+      `The model ${model ? `"${model}"` : "requested"} has been retired for new keys.`,
+      ...(successor
+        ? ["", `Google names ${successor} as its successor:`, "", `  ROBOT_MODEL=${successor}`]
+        : []),
+      "",
+      message,
+    ].join("\n");
+  }
+
   if (status !== undefined && status >= 500) {
-    return `Google returned ${status}. This is usually transient.\n${message}`;
+    return `Google returned ${status}. This is usually transient — retry.\n${message}`;
   }
   return message;
 }
@@ -210,7 +261,7 @@ export async function askJson<T>(request: JsonRequest<T>): Promise<JsonResult<T>
       request.maxTokens,
     );
   } catch (error) {
-    throw new LLMError(explain(error));
+    throw new LLMError(explain(error, request.model));
   }
 
   checkCandidate(response, request.maxTokens);
@@ -276,7 +327,7 @@ export async function runTools(request: ToolRequest): Promise<ToolResult> {
     try {
       response = await send(ai, request.model, contents, config, request.maxTokens);
     } catch (error) {
-      throw new LLMError(explain(error));
+      throw new LLMError(explain(error, request.model));
     }
 
     turns += 1;
@@ -325,7 +376,7 @@ export const provider: Provider = {
   envKeys,
   defaultModel,
   authHint,
-  pricing,
+  pricingFor,
   askJson,
   runTools,
 };

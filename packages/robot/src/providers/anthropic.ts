@@ -9,6 +9,7 @@ import {
 } from "./base.js";
 import type {
   JsonRequest,
+  Pricing,
   JsonResult,
   Provider,
   ToolRequest,
@@ -30,12 +31,14 @@ export const envKeys = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"] as const;
 export const defaultModel = "claude-opus-5";
 export const authHint = "set ANTHROPIC_API_KEY, or run `ant auth login`";
 
-/** Verify against current published pricing; used only for report estimates. */
-export const pricing = {
-  inputPerMTok: 5,
-  outputPerMTok: 25,
-  cachedInputPerMTok: 0.5,
-};
+/**
+ * Rough published rates for the opus class, for report estimates only. Haiku- and
+ * sonnet-class models are cheaper; override the model and this becomes an overestimate
+ * rather than a wrong decision, since nothing reads it.
+ */
+export function pricingFor(_model: string): Pricing {
+  return { inputPerMTok: 5, outputPerMTok: 25, cachedInputPerMTok: 0.5 };
+}
 
 function usageOf(usage: {
   input_tokens: number;
@@ -196,7 +199,7 @@ export const provider: Provider = {
   envKeys,
   defaultModel,
   authHint,
-  pricing,
+  pricingFor,
   askJson,
   runTools,
 };

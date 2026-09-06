@@ -4,9 +4,10 @@ An AI layer that reads an application's **code** and its **requirements**, gener
 executable test corpus from both, runs it against a real browser, and reports where the
 application, the code, and the requirements disagree.
 
-Status: **The deterministic pipeline runs end to end and is verified.** The model-calling
-stages — synthesis, divergence, adjudication, exploration — are written but have never
-been executed against a real key. Hand-written baseline: 7/7 passing, 0 false positives,
+Status: **The deterministic pipeline runs end to end and is verified**, and **Stage 1's
+divergence detector is verified on Gemini** — it finds the seeded REQ-2.6 contradiction
+with no false positives, for well under a cent. Synthesis, adjudication and exploration
+are written but not yet run. Hand-written baseline: 7/7 passing, 0 false positives,
 **4/10 mutation score**. Runs on Anthropic or Google Gemini, whichever is configured.
 See [Milestones](#milestones).
 
@@ -352,7 +353,7 @@ Skip this and nothing is reproducible — and an unreproducible suite is noise.
 | **M5a** | Mutation eval harness + scorecard | ✅ built, verified — 4/10 on the hand-written baseline |
 | **M4** | Stage 4 adjudication + `oracle/divergence` | ⚠️ built; evidence capture verified, model calls **not yet run** |
 | **M5b** | Explorer mode | ⚠️ built; tool surface and gatekeeper tested (14 tests), agent loop **not yet run** |
-| **M6** | Provider abstraction: Anthropic + Google Gemini, keyed selection | ⚠️ built; selection and Gemini schema handling tested (11 tests), neither provider's calls **run against a real key** |
+| **M6** | Provider abstraction: Anthropic + Google Gemini, keyed selection | ✅ built; **divergence verified end to end on Gemini** — found the seeded REQ-2.6 fixture, 0 false positives, ~$0.006. synth / adjudicate / explore still unrun. |
 
 M2 lands before M3 deliberately. If the runner is not trustworthy on hand-written cases,
 nothing downstream of it can be measured. The eval harness landed early for the same

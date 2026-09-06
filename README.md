@@ -77,6 +77,15 @@ GEMINI_API_KEY=...        # Google Gemini
 ANTHROPIC_API_KEY=...     # Anthropic Claude
 ```
 
+> **Gemini model ids retire, and `models.list()` still shows them.** Both
+> `gemini-2.5-pro` and `gemini-2.5-flash` 404 for new keys with "no longer available to
+> new users" while remaining in the listing, so the listing is not an availability signal.
+> The default is `gemini-3.6-flash`. Pro-class models are `limit: 0` on the free tier —
+> unavailable outright, not throttled — so a Pro default would 429 for anyone without
+> billing. Set `ROBOT_MODEL` to a Pro model if you have billing enabled; the judgement
+> stages will be better for it. The CLI explains both failures and names the successor
+> Google suggests.
+
 ```bash
 npx tsx packages/robot/src/cli.ts providers
 ```
