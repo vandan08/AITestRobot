@@ -92,7 +92,7 @@ npx tsx packages/robot/src/cli.ts providers
 
 ```
 Using Google Gemini — first keyed provider in order (gemini, anthropic)
-  model: gemini-2.5-pro
+  model: gemini-3.6-flash
 
 > gemini     keyed   GEMINI_API_KEY or GOOGLE_API_KEY
   anthropic  no key  ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN
